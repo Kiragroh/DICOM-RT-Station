@@ -5,6 +5,12 @@ A comprehensive DICOM RT (Radiation Therapy) plan management application with gr
 ![Screenshot Placeholder](assets/main-interface.png)
 *Main interface showing received plans and forwarding options*
 
+## Download (Releases)
+
+- Get the latest Windows build (ZIP): [Releases › Latest](https://github.com/Kiragroh/DICOM-RT-Station/releases/latest)
+- Usage: Unzip and run `DICOM-RT-Station.exe` inside the extracted folder. No install required.
+- For source installs or other platforms, see Installation below.
+
 ## Use Cases
 
 - Hospitals/clinics that routinely send DICOM-RT datasets (CT, RS, RP, RD) and want to forward to multiple destinations (TPS, archive, QA, research) in one flow.
