@@ -1,4 +1,4 @@
-![Banner](assets/banner.png)
+![Banner](assets/Banner.png)
 # DICOM RT Station
 A comprehensive DICOM RT (Radiation Therapy) plan management application with graphical user interface. This software enables receiving, organizing, and selectively forwarding DICOM RT plans to various DICOM nodes with automated rule-based forwarding capabilities.
 
