@@ -172,6 +172,17 @@ python main.py
 - **File Contents**: See all DICOM files included in each plan (RTPLAN, RTDOSE, RTSTRUCT, CT)
 - **Patient Data**: View patient ID, name, and plan metadata
 
+## Testing Send/Receive with DICOMnode
+
+For local end-to-end testing (receive and send), this repository includes a lightweight DICOM node: `DICOMnode`.
+
+- **Docs**: See [DICOMnode README](DICOMnode/README.md) for quick start and configuration details.
+- **Use as Receiver**: Start `DICOMnode` on a chosen port and AE Title, then configure that node in `settings.ini` under `[NodeX]` to test sending from DICOM RT Station.
+- **Use as Sender Source**: You can also point `DICOMnode` to send datasets to the DICOM RT Station receiver to test inbound workflows.
+- **Multi‑Node Tests**: Duplicate the `DICOMnode/` folder (e.g., `DICOMnode_NodeA/`, `DICOMnode_NodeB/`) and run multiple instances on different ports/AEs to simulate multiple targets. Then enable multiple `[NodeX]` entries in `settings.ini` to verify parallel/multi‑target sending.
+
+Tip: Keep AE titles and ports consistent between `DICOMnode/config.ini` and your `settings.ini` `[NodeX]` entries to avoid association errors.
+
 ## Advanced Features
 
 ### Automated Forwarding Workflows
@@ -265,7 +276,7 @@ dicom-rt-station/
   - Indexing for fast lookups and rule analytics
 - **Metrics UI & API**: In‑app table and REST API to filter/export plans based on metrics (e.g., “all ADP plans with max dose > X”).
 - **Enhanced Rules Actions**: Optional actions per rule: rename/normalize plan labels, archive to PACS, anonymize, compress/ZIP, tag in DB.
-- **Unlimited Target Nodes**: GUI for managing an arbitrary number of DICOM nodes (beyond Node1‑3) with grouping and priorities.
+- **Unlimited Target Nodes**: GUI for managing an arbitrary number of DICOM nodes (beyond Node1‑4) with grouping and priorities.
 - **Queue & Retry Engine**: Persistent job queue with backoff, per‑node rate limits, and resumable sends.
 - **Audit & Reporting**: End‑to‑end audit trail, per‑rule success rates, monthly export (CSV/JSON), and log viewer.
 - **Advanced Imports**: ZIP import, recursive folder watch with include/exclude filters, checksum deduplication.
