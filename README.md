@@ -53,9 +53,8 @@ pip install -r requirements.txt
 ```
 
 3. **Configure settings.ini**:
-```bash
 - make sure that the paths in settings.ini can potential exist on your system (e.g. D:\received_plans the folder will be created for you but D:\ has to exist)
-```
+
 
 4. **Run the application**:
 ```bash
