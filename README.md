@@ -53,7 +53,7 @@ pip install -r requirements.txt
 ```
 
 3. **Configure settings.ini**:
-- make sure that the paths in settings.ini can potential exist on your system (e.g. D:\received_plans the folder will be created for you but D:\ has to exist)
+- Ensure that all paths specified in settings.ini are valid on your system. For example, the folder D:\received_plans will be created automatically if it doesn’t exist — but the drive D:\ itself must already exist.
 
 
 4. **Run the application**:
