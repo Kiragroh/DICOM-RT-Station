@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Rules Dialog für DICOM-RT-Kaffee
+Rules Dialog for DICOM-RT-Station
 
-Dialog zur Konfiguration von Weiterleitungsregeln.
+Dialog for configuring forwarding rules.
 """
 
 import os
@@ -19,16 +19,16 @@ from PyQt5.QtCore import Qt, QSize
 logger = logging.getLogger("DICOM-Rules")
 
 class RuleEditDialog(QDialog):
-    """Dialog zum Bearbeiten einer einzelnen Regel."""
+    """Dialog for editing a single rule."""
     
     def __init__(self, rules_manager, settings_manager, rule_id=None, parent=None):
-        """Initialisiert den Dialog.
+        """Initializes the dialog.
         
         Args:
-            rules_manager: RulesManager-Instanz
-            settings_manager: SettingsManager-Instanz für Zugriff auf Knoten-Informationen
-            rule_id: ID der zu bearbeitenden Regel oder None für neue Regel
-            parent: Elternobjekt
+            rules_manager: RulesManager instance
+            settings_manager: SettingsManager instance for accessing node information
+            rule_id: ID of the rule to edit or None for new rule
+            parent: Parent object
         """
         super().__init__(parent)
         self.rules_manager = rules_manager
@@ -37,7 +37,7 @@ class RuleEditDialog(QDialog):
         self.is_new = rule_id is None
         
         if self.is_new:
-            self.setWindowTitle("Neue Regel erstellen")
+            self.setWindowTitle("Create New Rule")
             self.rule = {
                 'name': '',
                 'enabled': True,
@@ -46,7 +46,7 @@ class RuleEditDialog(QDialog):
                 'plan_label_match': ''
             }
         else:
-            self.setWindowTitle("Regel bearbeiten")
+            self.setWindowTitle("Edit Rule")
             self.rule = self.rules_manager.get_rule(rule_id)
         
         self.setup_ui()
@@ -56,36 +56,36 @@ class RuleEditDialog(QDialog):
         """Richtet die Benutzeroberfläche ein."""
         self.setMinimumWidth(400)
         
-        # Layout erstellen
+        # Create layout
         layout = QFormLayout()
         
-        # Regelname
+        # Rule name
         self.name_edit = QLineEdit()
-        layout.addRow("Regelname:", self.name_edit)
+        layout.addRow("Rule Name:", self.name_edit)
         
-        # Aktiviert
-        self.enabled_checkbox = QCheckBox("Regel aktivieren")
+        # Enabled
+        self.enabled_checkbox = QCheckBox("Enable Rule")
         layout.addRow("", self.enabled_checkbox)
         
-        # Quell-AE
+        # Source AE
         self.source_ae_edit = QLineEdit()
-        layout.addRow("Quell-AE Title:", self.source_ae_edit)
+        layout.addRow("Source AE Title:", self.source_ae_edit)
         
-        # Plan-Label-Match
+        # Plan label match
         self.plan_label_match_edit = QLineEdit()
-        layout.addRow("Plan-Label enthält:", self.plan_label_match_edit)
+        layout.addRow("Plan Label Contains:", self.plan_label_match_edit)
         
-        # Zielknoten
-        self.target_nodes_group = QGroupBox("Zielknoten")
+        # Target nodes
+        self.target_nodes_group = QGroupBox("Target Nodes")
         target_nodes_layout = QVBoxLayout()
         
-        # Liste der verfügbaren Knoten
+        # List of available nodes
         self.node_checkboxes = []
         nodes = self.settings_manager.get_dicom_nodes()
         
         for node in nodes:
             checkbox = QCheckBox(node['name'])
-            checkbox.setChecked(False)  # Standardmäßig nicht ausgewählt
+            checkbox.setChecked(False)  # Not selected by default
             target_nodes_layout.addWidget(checkbox)
             self.node_checkboxes.append((node['name'], checkbox))
         
@@ -99,15 +99,15 @@ class RuleEditDialog(QDialog):
         
         # Buttons
         button_layout = QHBoxLayout()
-        save_button = QPushButton("Speichern")
+        save_button = QPushButton("Save")
         save_button.clicked.connect(self.save_rule)
-        cancel_button = QPushButton("Abbrechen")
+        cancel_button = QPushButton("Cancel")
         cancel_button.clicked.connect(self.reject)
         
         button_layout.addWidget(save_button)
         button_layout.addWidget(cancel_button)
         
-        # Hauptlayout
+        # Main layout
         main_layout = QVBoxLayout()
         main_layout.addLayout(layout)
         main_layout.addLayout(button_layout)
@@ -115,75 +115,75 @@ class RuleEditDialog(QDialog):
         self.setLayout(main_layout)
     
     def load_rule_data(self):
-        """Lädt die Regeldaten in die UI-Elemente."""
+        """Loads the rule data into the UI elements."""
         if not self.is_new:
             self.name_edit.setText(self.rule['name'])
             self.enabled_checkbox.setChecked(self.rule['enabled'])
             self.source_ae_edit.setText(self.rule['source_ae'])
             self.plan_label_match_edit.setText(self.rule['plan_label_match'])
             
-            # Zielknoten markieren
+            # Mark target nodes
             for node_name, checkbox in self.node_checkboxes:
                 checkbox.setChecked(node_name in self.rule['target_nodes'])
     
     def save_rule(self):
-        """Speichert die Regel."""
+        """Saves the rule."""
         name = self.name_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, "Fehler", "Bitte geben Sie einen Namen für die Regel ein.")
+            QMessageBox.warning(self, "Error", "Please enter a name for the rule.")
             return
         
         source_ae = self.source_ae_edit.text().strip()
         plan_label_match = self.plan_label_match_edit.text().strip()
         enabled = self.enabled_checkbox.isChecked()
         
-        # Ausgewählte Zielknoten sammeln
+        # Collect selected target nodes
         target_nodes = []
         for node_name, checkbox in self.node_checkboxes:
             if checkbox.isChecked():
                 target_nodes.append(node_name)
         
         if not target_nodes:
-            QMessageBox.warning(self, "Fehler", "Bitte wählen Sie mindestens einen Zielknoten aus.")
+            QMessageBox.warning(self, "Error", "Please select at least one target node.")
             return
         
-        # Regel speichern
+        # Save rule
         if self.is_new:
             self.rule_id = self.rules_manager.add_rule(
                 name, source_ae, target_nodes, plan_label_match, enabled
             )
             if self.rule_id:
-                logger.info(f"Neue Regel erstellt: {name}")
+                logger.info(f"New rule created: {name}")
                 self.accept()
             else:
-                QMessageBox.critical(self, "Fehler", "Fehler beim Erstellen der Regel.")
+                QMessageBox.critical(self, "Error", "Error creating the rule.")
         else:
             success = self.rules_manager.update_rule(
                 self.rule_id, name, source_ae, target_nodes, plan_label_match, enabled
             )
             if success:
-                logger.info(f"Regel aktualisiert: {name}")
+                logger.info(f"Rule updated: {name}")
                 self.accept()
             else:
-                QMessageBox.critical(self, "Fehler", "Fehler beim Aktualisieren der Regel.")
+                QMessageBox.critical(self, "Error", "Error updating the rule.")
 
 
 class RulesDialog(QDialog):
-    """Dialog zur Konfiguration von Weiterleitungsregeln."""
+    """Dialog for configuring forwarding rules."""
     
     def __init__(self, rules_manager, settings_manager, parent=None):
-        """Initialisiert den Dialog.
+        """Initializes the dialog.
         
         Args:
-            rules_manager: RulesManager-Instanz
-            settings_manager: SettingsManager-Instanz für Zugriff auf Knoten-Informationen
-            parent: Elternobjekt
+            rules_manager: RulesManager instance
+            settings_manager: SettingsManager instance for accessing node information
+            parent: Parent object
         """
         super().__init__(parent)
         self.rules_manager = rules_manager
         self.settings_manager = settings_manager
         
-        self.setWindowTitle("Weiterleitungsregeln konfigurieren")
+        self.setWindowTitle("Configure Forwarding Rules")
         self.setMinimumWidth(600)
         self.setMinimumHeight(400)
         
@@ -191,41 +191,41 @@ class RulesDialog(QDialog):
         self.load_rules()
     
     def setup_ui(self):
-        """Richtet die Benutzeroberfläche ein."""
-        # Hauptlayout
+        """Sets up the user interface."""
+        # Main layout
         layout = QVBoxLayout()
         
-        # Globaler Aktivierungsschalter
-        self.global_enabled_checkbox = QCheckBox("Weiterleitungsregeln aktivieren")
+        # Global activation switch
+        self.global_enabled_checkbox = QCheckBox("Enable Forwarding Rules")
         self.global_enabled_checkbox.setChecked(self.rules_manager.get_rules_enabled())
         layout.addWidget(self.global_enabled_checkbox)
         
-        # Erklärungstext
+        # Explanation text
         info_label = QLabel(
-            "<i>Hier können Sie Regeln definieren, nach denen empfangene DICOM-Pläne "
-            "automatisch an bestimmte Zielknoten weitergeleitet werden. "
-            "Eine Regel wird angewendet, wenn der AE-Titel der Quelle und optional "
-            "ein Teil des Plan-Labels übereinstimmen.</i>"
+            "<i>Here you can define rules for automatically forwarding received DICOM plans "
+            "to specific target nodes. "
+            "A rule is applied when the source AE title and optionally "
+            "part of the plan label match.</i>"
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
         
-        # Liste der Regeln
+        # List of rules
         self.rules_list = QListWidget()
         self.rules_list.setSelectionMode(QListWidget.SingleSelection)
         layout.addWidget(self.rules_list)
         
-        # Buttons für die Regelliste
+        # Buttons for rule list
         button_layout = QHBoxLayout()
         
-        self.add_button = QPushButton("Neue Regel")
+        self.add_button = QPushButton("New Rule")
         self.add_button.clicked.connect(self.add_rule)
         
-        self.edit_button = QPushButton("Bearbeiten")
+        self.edit_button = QPushButton("Edit")
         self.edit_button.clicked.connect(self.edit_rule)
         self.edit_button.setEnabled(False)
         
-        self.delete_button = QPushButton("Löschen")
+        self.delete_button = QPushButton("Delete")
         self.delete_button.clicked.connect(self.delete_rule)
         self.delete_button.setEnabled(False)
         
@@ -234,14 +234,14 @@ class RulesDialog(QDialog):
         button_layout.addWidget(self.delete_button)
         layout.addLayout(button_layout)
         
-        # Verbindung zur Aktualisierung der Button-Aktivierung
+        # Connection for updating button activation
         self.rules_list.itemSelectionChanged.connect(self.update_buttons)
         
         # OK/Abbrechen-Buttons
         dialog_buttons = QHBoxLayout()
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(self.save_and_close)
-        cancel_button = QPushButton("Abbrechen")
+        cancel_button = QPushButton("Cancel")
         cancel_button.clicked.connect(self.reject)
         
         dialog_buttons.addWidget(ok_button)
@@ -251,61 +251,61 @@ class RulesDialog(QDialog):
         self.setLayout(layout)
     
     def load_rules(self):
-        """Lädt die Regeln in die Liste."""
+        """Loads the rules into the list."""
         self.rules_list.clear()
         
-        # Erstelle ein Widget für jede Regel mit Checkbox für Aktivierung
+        # Create a widget for each rule with checkbox for activation
         rules = self.rules_manager.get_all_rules()
         for rule in rules:
-            # Erstelle ein Widget für das Listenelement
+            # Create a widget for the list item
             item_widget = QWidget()
             item_layout = QHBoxLayout(item_widget)
             item_layout.setContentsMargins(4, 4, 4, 4)
             
-            # Checkbox für Aktivierung/Deaktivierung
+            # Checkbox for enabling/disabling
             enabled_checkbox = QCheckBox()
             enabled_checkbox.setChecked(rule['enabled'])
-            enabled_checkbox.setToolTip("Regel aktivieren/deaktivieren")
+            enabled_checkbox.setToolTip("Enable/disable rule")
             
-            # Speichere die Regel-ID in der Checkbox für spätere Verwendung
+            # Save the rule ID in the checkbox for later use
             enabled_checkbox.setProperty("rule_id", rule['id'])
             
-            # Verbinde das Signal mit der Methode zum Umschalten der Aktivierung
+            # Connect the signal to the method for toggling activation
             enabled_checkbox.stateChanged.connect(self.toggle_rule_enabled)
             
-            # Label für den Regelnamen
+            # Label for the rule name
             name_label = QLabel(rule['name'])
             if not rule['enabled']:
                 name_label.setStyleSheet("color: gray;")
             
-            # Füge die Widgets zum Layout hinzu
+            # Add the widgets to the layout
             item_layout.addWidget(enabled_checkbox)
             item_layout.addWidget(name_label, 1)  # 1 = stretch factor
             item_layout.addStretch()
             
-            # Erstelle das Listenelement
+            # Create the list item
             list_item = QListWidgetItem()
             list_item.setData(Qt.UserRole, rule['id'])
             list_item.setSizeHint(item_widget.sizeHint())
             
-            # Füge das Element zur Liste hinzu und setze das Widget
+            # Add the element to the list and set the widget
             self.rules_list.addItem(list_item)
             self.rules_list.setItemWidget(list_item, item_widget)
     
     def update_buttons(self):
-        """Aktualisiert den Zustand der Buttons basierend auf der Auswahl."""
+        """Updates the button state based on selection."""
         selected = len(self.rules_list.selectedItems()) > 0
         self.edit_button.setEnabled(selected)
         self.delete_button.setEnabled(selected)
     
     def add_rule(self):
-        """Öffnet den Dialog zum Hinzufügen einer neuen Regel."""
+        """Opens the dialog for adding a new rule."""
         dialog = RuleEditDialog(self.rules_manager, self.settings_manager, parent=self)
         if dialog.exec_():
             self.load_rules()
     
     def edit_rule(self):
-        """Öffnet den Dialog zum Bearbeiten der ausgewählten Regel."""
+        """Opens the dialog for editing the selected rule."""
         selected_items = self.rules_list.selectedItems()
         if not selected_items:
             return
@@ -316,7 +316,7 @@ class RulesDialog(QDialog):
             self.load_rules()
     
     def delete_rule(self):
-        """Löscht die ausgewählte Regel nach Bestätigung."""
+        """Deletes the selected rule after confirmation."""
         selected_items = self.rules_list.selectedItems()
         if not selected_items:
             return
@@ -326,8 +326,8 @@ class RulesDialog(QDialog):
         
         reply = QMessageBox.question(
             self, 
-            "Regel löschen", 
-            f"Möchten Sie die Regel '{rule['name']}' wirklich löschen?",
+            "Delete Rule", 
+            f"Do you really want to delete the rule '{rule['name']}'?",
             QMessageBox.Yes | QMessageBox.No, 
             QMessageBox.No
         )
@@ -335,28 +335,28 @@ class RulesDialog(QDialog):
         if reply == QMessageBox.Yes:
             if self.rules_manager.delete_rule(rule_id):
                 self.load_rules()
-                logger.info(f"Regel gelöscht: {rule['name']}")
+                logger.info(f"Rule deleted: {rule['name']}")
             else:
-                QMessageBox.critical(self, "Fehler", "Fehler beim Löschen der Regel.")
+                QMessageBox.critical(self, "Error", "Error deleting the rule.")
     
     def toggle_rule_enabled(self, state):
-        """Schaltet die Aktivierung einer Regel um."""
-        # Ermittle die Checkbox, die das Signal gesendet hat
+        """Toggles the activation of a rule."""
+        # Determine the checkbox that sent the signal
         checkbox = self.sender()
         if not checkbox:
             return
             
-        # Hole die Regel-ID aus der Checkbox
+        # Get the rule ID from the checkbox
         rule_id = checkbox.property("rule_id")
         if not rule_id:
             return
             
-        # Hole die aktuelle Regel
+        # Get the current rule
         rule = self.rules_manager.get_rule(rule_id)
         if not rule:
             return
             
-        # Aktualisiere den enabled-Status
+        # Update the enabled status
         enabled = state == Qt.Checked
         success = self.rules_manager.update_rule(
             rule_id, 
@@ -368,9 +368,9 @@ class RulesDialog(QDialog):
         )
         
         if success:
-            logger.info(f"Regel '{rule['name']}' {('aktiviert' if enabled else 'deaktiviert')}")
+            logger.info(f"Rule '{rule['name']}' {('enabled' if enabled else 'disabled')}")
             
-            # Aktualisiere die visuelle Darstellung
+            # Update the visual representation
             item = None
             for i in range(self.rules_list.count()):
                 if self.rules_list.item(i).data(Qt.UserRole) == rule_id:
@@ -380,7 +380,7 @@ class RulesDialog(QDialog):
             if item:
                 widget = self.rules_list.itemWidget(item)
                 if widget:
-                    # Finde das QLabel im Widget
+                    # Find the QLabel in the widget
                     for child in widget.children():
                         if isinstance(child, QLabel):
                             if enabled:
@@ -389,11 +389,11 @@ class RulesDialog(QDialog):
                                 child.setStyleSheet("color: gray;")
                             break
         else:
-            logger.error(f"Fehler beim Aktualisieren des Status für Regel '{rule['name']}'")
+            logger.error(f"Error updating status for rule '{rule['name']}'")
     
     def save_and_close(self):
-        """Speichert die globale Einstellung und schließt den Dialog."""
+        """Saves the global setting and closes the dialog."""
         enabled = self.global_enabled_checkbox.isChecked()
         self.rules_manager.set_rules_enabled(enabled)
-        logger.info(f"Weiterleitungsregeln {'aktiviert' if enabled else 'deaktiviert'}")
+        logger.info(f"Forwarding rules {'enabled' if enabled else 'disabled'}")
         self.accept()

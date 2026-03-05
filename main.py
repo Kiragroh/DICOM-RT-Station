@@ -2,11 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-DICOM-RT-Kaffee: Ein DICOM-Plan-Manager mit GUI
+DICOM-RT-Station: A DICOM Plan Manager with GUI
 
-Diese Anwendung ermöglicht es, DICOM-RT-Pläne zu empfangen, zu organisieren 
-und gezielt an verschiedene DICOM-Knoten zu senden.
+This application allows receiving, organizing and selectively sending 
+DICOM-RT plans to various DICOM nodes.
 """
+
+# TEST DATA FLAG - Set to True to show dummy plans for screenshots
+SHOW_TEST_DATA = False
 
 import os
 import sys
@@ -29,18 +32,19 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
 from PyQt5.QtGui import QIcon, QFont, QPixmap, QColor, QPainter, QIntValidator, QBrush, QPen
 
-# Eigene Module importieren
+# Import custom modules
 from dicom_processor import DicomProcessor
 from settings_dialog import SettingsDialog
 from rules_dialog import RulesDialog
 from rules_manager import RulesManager
+from dark_theme import apply_dark_theme
 
 # ... (rest of imports)
 
 
-# In main.py, add this new class
+# Sender thread for safe DICOM plan transmission
 class SenderThread(QThread):
-    """Thread zum sicheren Senden von DICOM-Plänen mit GUI-Feedback."""
+    """Thread for safe sending of DICOM plans with GUI feedback."""
     # Define signals to communicate with the main thread
     # Signal: (status_text)
     update_status_signal = pyqtSignal(str)
@@ -50,14 +54,14 @@ class SenderThread(QThread):
     finished_signal = pyqtSignal(str)
 
     def __init__(self, dicom_processor, plan_data_list, nodes_to_send_to, delete_after=False, parent=None):
-        """Initialisiert den SenderThread mit einfachen Daten statt Qt-Objekten
+        """Initializes the SenderThread with simple data instead of Qt objects
         
         Args:
-            dicom_processor: DicomProcessor-Instanz
-            plan_data_list: Liste von Tupeln (plan_name, plan_path)
-            nodes_to_send_to: Liste von Knoten-Tupeln (node_id, node_info)
-            delete_after: Ob Dateien nach dem Senden gelöscht werden sollen
-            parent: Elternobjekt
+            dicom_processor: DicomProcessor instance
+            plan_data_list: List of tuples (plan_name, plan_path)
+            nodes_to_send_to: List of node tuples (node_id, node_info)
+            delete_after: Whether files should be deleted after sending
+            parent: Parent object
         """
         super().__init__(parent)
         self.processor = dicom_processor
@@ -78,7 +82,7 @@ class SenderThread(QThread):
                 if not self.is_running:
                     break
                 
-                self.update_status_signal.emit(f"Verarbeite Plan: {plan_name}")
+                self.update_status_signal.emit(f"Processing plan: {plan_name}")
 
                 # For each selected node...
                 all_sends_successful = True
@@ -88,9 +92,9 @@ class SenderThread(QThread):
                     
                     operation_number = item_index * len(self.nodes) + node_index
                     self.update_progress_signal.emit(operation_number, total_operations)
-                    self.update_status_signal.emit(f"Sende {plan_name} an {node_info.get('name')}...")
+                    self.update_status_signal.emit(f"Sending {plan_name} to {node_info.get('name')}...")
                     
-                    # Niemals während der Schleife löschen, nur am Ende des gesamten Prozesses
+                    # Never delete during the loop, only at the end of the entire process
                     success = self.processor.send_plan_to_node(plan_path, node_info, delete_after=False)
                     
                     if success:
@@ -102,35 +106,35 @@ class SenderThread(QThread):
                     
                     completed_operations += 1
                 
-                # Dateien nur löschen, wenn alle Sendungen für diesen Plan erfolgreich waren und Löschen aktiviert ist
+                # Only delete files if all sends for this plan were successful and deletion is enabled
                 if self.delete_after and all_sends_successful and self.is_running:
-                    self.update_status_signal.emit(f"Lösche Plan-Dateien: {plan_name}")
+                    self.update_status_signal.emit(f"Deleting plan files: {plan_name}")
                     try:
                         self.processor.delete_plan_files(plan_path)
-                        logger.info(f"Plan-Dateien für {plan_name} wurden gelöscht")
+                        logger.info(f"Plan files for {plan_name} were deleted")
                     except Exception as e:
-                        logger.error(f"Fehler beim Löschen der Plan-Dateien für {plan_name}: {str(e)}")
+                        logger.error(f"Error deleting plan files for {plan_name}: {str(e)}")
                 elif self.delete_after:
-                    logger.info(f"Plan-Dateien für {plan_name} wurden NICHT gelöscht, da nicht alle Sendungen erfolgreich waren")
+                    logger.info(f"Plan files for {plan_name} were NOT deleted because not all sends were successful")
 
             # Final progress update
             self.update_progress_signal.emit(total_operations, total_operations)
-            final_message = f"{successful_sends} von {completed_operations} Sendeoperationen erfolgreich abgeschlossen."
+            final_message = f"{successful_sends} of {completed_operations} send operations completed successfully."
             self.finished_signal.emit(final_message)
 
         except Exception as e:
-            logger.error(f"Schwerer Fehler im Sender-Thread: {str(e)}")
-            self.finished_signal.emit(f"Fehler: {str(e)}")
+            logger.error(f"Critical error in sender thread: {str(e)}")
+            self.finished_signal.emit(f"Error: {str(e)}")
             
     def stop(self):
         self.is_running = False
-# Status-Lampen-Klasse
+# Status lamp class
 class StatusLamp(QFrame):
-    """Ein einfaches Status-Indikator-Widget, das den Zustand durch Farbe anzeigt"""
-    # Farbdefinitionen
-    COLOR_GREEN = QColor(0, 170, 0)    # Bereit
-    COLOR_BLUE = QColor(0, 100, 220)   # Empfängt
-    COLOR_RED = QColor(220, 0, 0)      # Aus
+    """A simple status indicator widget that displays state through color"""
+    # Color definitions
+    COLOR_GREEN = QColor(0, 170, 0)    # Ready
+    COLOR_BLUE = QColor(0, 100, 220)   # Receiving
+    COLOR_RED = QColor(220, 0, 0)      # Off
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -139,34 +143,34 @@ class StatusLamp(QFrame):
         self.color = self.COLOR_RED     # Standardfarbe: Rot (Aus)
     
     def set_status(self, status):
-        """Setzt den Status der Lampe: 'ready', 'receiving' oder 'off'"""
+        """Sets the lamp status: 'ready', 'receiving' or 'off'"""
         if status == 'ready':
             self.color = self.COLOR_GREEN
         elif status == 'receiving':
             self.color = self.COLOR_BLUE
         else:  # 'off' oder andere
             self.color = self.COLOR_RED
-        self.update()  # Widget neu zeichnen
+        self.update()  # Redraw widget
     
     def paintEvent(self, event):
-        """Zeichnet die Lampe mit der aktuellen Farbe"""
+        """Draws the lamp with the current color"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Kreis füllen
+        # Fill circle
         painter.setBrush(self.color)
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(2, 2, self.width()-4, self.height()-4)
 
-# Logging konfigurieren
+# Configure logging
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, f'dicom_rt_kaffee_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
 
-# Standardmäßig INFO-Level verwenden
+# Use INFO level by default
 log_level = logging.INFO
 
-# Logging-Konfiguration
+# Logging configuration
 logging.basicConfig(
     level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -177,11 +181,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger('DICOM-RT-Kaffee')
 
-# Logger für DICOM-Processor separat konfigurieren
+# Configure DICOM-Processor logger separately
 dicom_processor_logger = logging.getLogger('DICOM-Processor')
 
 class SettingsManager:
-    """Verwaltet die Anwendungseinstellungen"""
+    """Manages application settings"""
     
     def __init__(self):
         self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.ini')
@@ -192,7 +196,7 @@ class SettingsManager:
         self.system_ip = self.get_system_ip()
 
     def create_default_settings_file(self):
-        """Erstellt eine Default-settings.ini, falls sie fehlt."""
+        """Creates a default settings.ini if it doesn't exist."""
         if not os.path.exists(self.config_file):
             default_content = (
                 "[General]\n"
@@ -236,63 +240,63 @@ class SettingsManager:
             )
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 f.write(default_content)
-            logger.info("Default settings.ini automatisch erstellt.")
+            logger.info("Default settings.ini automatically created.")
         
     def get_system_ip(self):
-        """Ermittelt die IP-Adresse des Systems"""
+        """Determines the system's IP address"""
         try:
-            # Methode, um die aktuelle IP-Adresse des Systems zu ermitteln
+            # Method to determine the current IP address of the system
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # Verbindung zu einer externen Adresse (keine tatsächliche Verbindung nötig)
+            # Connect to an external address (no actual connection needed)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
             return ip
         except Exception as e:
-            logger.error(f"Fehler beim Ermitteln der IP-Adresse: {str(e)}")
-            return "127.0.0.1"  # Fallback auf localhost
+            logger.error(f"Error determining IP address: {str(e)}")
+            return "127.0.0.1"  # Fallback to localhost
         
     def configure_logging(self):
-        """Konfiguriert das Logging basierend auf den Einstellungen in der settings.ini"""
+        """Configures logging based on settings in settings.ini"""
         try:
-            # Log-Level aus der Konfiguration lesen (Standard: INFO = 20)
+            # Read log level from configuration (default: INFO = 20)
             log_level = int(self.config.get('Logging', 'log_level', fallback='20'))
-            # Verbose INFO-Logging Option (Standard: True)
+            # Verbose INFO logging option (default: True)
             verbose_info_logging = self.config.getboolean('Logging', 'verbose_info_logging', fallback=True)
             
-            # Root-Logger und Haupt-Logger konfigurieren
+            # Configure root logger and main logger
             logging.getLogger().setLevel(log_level)
             logger.setLevel(log_level)
             
-            # DICOM-Processor Logger konfigurieren
+            # Configure DICOM-Processor logger
             if verbose_info_logging:
                 dicom_processor_logger.setLevel(log_level)
             else:
-                # Bei deaktiviertem verbose_info_logging nur WARNING und höher anzeigen
+                # When verbose_info_logging is disabled, only show WARNING and higher
                 dicom_processor_logger.setLevel(logging.WARNING)
                 
-            logger.info(f"Logging konfiguriert: log_level={log_level}, verbose_info_logging={verbose_info_logging}")
+            logger.info(f"Logging configured: log_level={log_level}, verbose_info_logging={verbose_info_logging}")
         except Exception as e:
-            logger.error(f"Fehler bei der Logging-Konfiguration: {str(e)}")
+            logger.error(f"Error in logging configuration: {str(e)}")
     
     def load_config(self):
-        """Lädt Konfiguration aus der settings.ini, erstellt sie falls nötig"""
+        """Loads configuration from settings.ini, creates it if necessary"""
         if os.path.exists(self.config_file):
             self.config.read(self.config_file)
         else:
-            # Standardkonfiguration erstellen
+            # Create default configuration
             self.config['General'] = {
                 'ReceivePort': '1334',
 
             }
             
-            # Lokalen DICOM-Knoten konfigurieren
+            # Configure local DICOM node
             self.config['LocalNode'] = {
                 'AET': 'DICOM-RT-KAFFEE',
                 'ReceivePort': '1334'
             }
             
-            # Standardknoten konfigurieren
+            # Configure default nodes
             self.config['DicomNode1'] = {
                 'Name': 'BL_IMPORT_ARC',
                 'AET': 'BL_IMPORT_ARC',
@@ -317,22 +321,22 @@ class SettingsManager:
                 'Enabled': 'True'
             }
             
-            # Speichern
+            # Save
             with open(self.config_file, 'w') as f:
                 self.config.write(f)
     
     def save_config(self):
-        """Speichert die aktuelle Konfiguration"""
+        """Saves the current configuration"""
         with open(self.config_file, 'w') as f:
             self.config.write(f)
             
     def get_dicom_nodes(self):
-        """Gibt alle konfigurierten DICOM-Knoten zurück"""
+        """Returns all configured DICOM nodes"""
         nodes = []
         for section in self.config.sections():
             if section.startswith('DicomNode'):
                 node = {
-                    'name': self.config[section].get('Name', 'Unbekannt'),
+                    'name': self.config[section].get('Name', 'Unknown'),
                     'aet': self.config[section].get('AET', ''),
                     'ip': self.config[section].get('IP', ''),
                     'port': self.config[section].get('Port', '104'),
@@ -342,16 +346,16 @@ class SettingsManager:
         return nodes
 
     def get_node_info(self, node_name):
-        """Gibt die Informationen eines bestimmten DICOM-Knotens anhand des Namens zurück."""
+        """Returns information for a specific DICOM node by name."""
         nodes = self.get_dicom_nodes()
         for node in nodes:
             if node['name'] == node_name:
                 return node
-        logger.warning(f"DICOM-Knoten mit Name '{node_name}' nicht gefunden.")
+        logger.warning(f"DICOM node with name '{node_name}' not found.")
         return None
     
     def update_node(self, index, node_data):
-        """Aktualisiert einen DICOM-Knoten"""
+        """Updates a DICOM node"""
         section = f'DicomNode{index+1}'
         if not self.config.has_section(section):
             self.config.add_section(section)
@@ -365,41 +369,60 @@ class SettingsManager:
         self.save_config()
         
     def get_received_plans_folder(self):
-        """Gibt den Pfad zum received_plans-Ordner zurück (aus settings.ini, fallback: ./received_plans)"""
+        """Returns the path to the received_plans folder (from settings.ini, fallback: ./received_plans)"""
         folder = self.config['General'].get('receivedplansfolder', '')
         if not folder:
             folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'received_plans')
-            folder = self.settings_manager.get_received_plans_folder()
             self.config['General']['receivedplansfolder'] = folder
             self.save_config()
-        os.makedirs(folder, exist_ok=True)
+        
+        # Try to create the folder, fall back to local directory if path is invalid
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except (OSError, FileNotFoundError) as e:
+            logger.warning(f"Cannot create folder at '{folder}': {e}. Falling back to local directory.")
+            folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'received_plans')
+            self.config['General']['receivedplansfolder'] = folder
+            self.save_config()
+            os.makedirs(folder, exist_ok=True)
+        
         return folder
 
     def get_import_folder(self):
-        """Gibt den Pfad zum Import-Ordner zurück (aus settings.ini, fallback: ./import)"""
+        """Returns the path to the import folder (from settings.ini, fallback: ./import)"""
         folder = self.config['General'].get('importfolder', '')
         if not folder:
-            folder = self.settings_manager.get_import_folder()
+            folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'import')
             self.config['General']['importfolder'] = folder
             self.save_config()
-        os.makedirs(folder, exist_ok=True)
+        
+        # Try to create the folder, fall back to local directory if path is invalid
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except (OSError, FileNotFoundError) as e:
+            logger.warning(f"Cannot create folder at '{folder}': {e}. Falling back to local directory.")
+            folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'import')
+            self.config['General']['importfolder'] = folder
+            self.save_config()
+            os.makedirs(folder, exist_ok=True)
+        
         return folder
 
     def get_auto_start_receiver(self):
-        """Gibt zurück, ob der DICOM-Empfänger beim Start automatisch aktiviert wird (aus settings.ini, fallback: False)"""
+        """Returns whether the DICOM receiver is automatically activated at startup (from settings.ini, fallback: False)"""
         return self.config['General'].get('auto_start_receiver', 'False').lower() == 'true'
 
     def get_clear_import_folder_after_import(self):
-        """Gibt zurück, ob der Import-Ordner nach dem Import gelöscht werden soll (aus settings.ini, fallback: False)"""
+        """Returns whether the import folder should be deleted after import (from settings.ini, fallback: False)"""
         return self.config['General'].get('clear_import_folder_after_import', 'False').lower() == 'true'
 
     def get_delete_after_send(self):
-        """Gibt zurück, ob Pläne nach dem Senden gelöscht werden sollen (aus settings.ini, [SendOptions], fallback: False)"""
+        """Returns whether plans should be deleted after sending (from settings.ini, [SendOptions], fallback: False)"""
         return self.config['SendOptions'].get('delete_after_send', 'False').lower() == 'true'
 
 
 class DicomSenderThread(QThread):
-    """Thread zum Senden von DICOM-Daten"""
+    """Thread for sending DICOM data"""
     progress_signal = pyqtSignal(int, int)  # (current, total)
     status_signal = pyqtSignal(str, str)  # (plan_name, status)
     finished_signal = pyqtSignal(bool, str, str)  # (success, plan_name, node_name)
@@ -412,12 +435,12 @@ class DicomSenderThread(QThread):
         self.delete_after = delete_after
         
     def run(self):
-        """Führt den Sendevorgang durch"""
+        """Executes the send operation"""
         plan_name = os.path.basename(self.plan_path)
         try:
-            self.status_signal.emit(plan_name, f"Sende an {self.node_info['name']}...")
+            self.status_signal.emit(plan_name, f"Sending to {self.node_info['name']}...")
             
-            # Senden mit Fortschrittsrückmeldung
+            # Send with progress feedback
             success = self.processor.send_plan_to_node(
                 self.plan_path, 
                 self.node_info,
@@ -426,24 +449,24 @@ class DicomSenderThread(QThread):
             )
             
             if success:
-                self.status_signal.emit(plan_name, f"Erfolgreich an {self.node_info['name']} gesendet")
+                self.status_signal.emit(plan_name, f"Successfully sent to {self.node_info['name']}")
                 self.finished_signal.emit(True, plan_name, self.node_info['name'])
             else:
-                self.status_signal.emit(plan_name, f"Fehler beim Senden an {self.node_info['name']}")
+                self.status_signal.emit(plan_name, f"Error sending to {self.node_info['name']}")
                 self.finished_signal.emit(False, plan_name, self.node_info['name'])
                 
         except Exception as e:
-            logger.error(f"Fehler beim Senden von {plan_name}: {str(e)}")
-            self.status_signal.emit(plan_name, f"Fehler: {str(e)}")
+            logger.error(f"Error sending {plan_name}: {str(e)}")
+            self.status_signal.emit(plan_name, f"Error: {str(e)}")
             self.finished_signal.emit(False, plan_name, self.node_info['name'])
     
     def progress_callback(self, current, total):
-        """Callback für Fortschrittsrückmeldung"""
+        """Callback for progress feedback"""
         self.progress_signal.emit(current, total)
 
 
 class DicomReceiverThread(QThread):
-    """Thread zum Empfangen von DICOM-Daten"""
+    """Thread for receiving DICOM data"""
     new_plan_signal = pyqtSignal(str)  # (plan_path)
     status_signal = pyqtSignal(str)  # (status)
     
@@ -454,9 +477,9 @@ class DicomReceiverThread(QThread):
         self.running = False
         
     def run(self):
-        """Startet den DICOM-Empfänger"""
+        """Starts the DICOM receiver"""
         self.running = True
-        self.status_signal.emit("DICOM-Empfänger gestartet...")
+        self.status_signal.emit("DICOM receiver started...")
         
         try:
             self.processor.start_receiver(
@@ -464,68 +487,68 @@ class DicomReceiverThread(QThread):
                 new_plan_callback=self.new_plan_callback
             )
             
-            # Wartet, bis der Thread angehalten wird
+            # Wait until the thread is stopped
             while self.running:
                 self.msleep(100)
                 
         except Exception as e:
-            logger.error(f"Fehler im DICOM-Empfänger: {str(e)}")
-            self.status_signal.emit(f"Fehler im DICOM-Empfänger: {str(e)}")
+            logger.error(f"Error in DICOM receiver: {str(e)}")
+            self.status_signal.emit(f"Error in DICOM receiver: {str(e)}")
         
         self.processor.stop_receiver()
-        self.status_signal.emit("DICOM-Empfänger gestoppt.")
+        self.status_signal.emit("DICOM receiver stopped.")
         
     def stop(self):
-        """Stoppt den DICOM-Empfänger"""
+        """Stops the DICOM receiver"""
         self.running = False
         
     def new_plan_callback(self, plan_path):
-        """Callback für neue Pläne"""
+        """Callback for new plans"""
         self.new_plan_signal.emit(plan_path)
 
 
 class LocalNodeSettingsDialog(QDialog):
-    """Dialog zur Konfiguration des lokalen DICOM-Knotens (DICOM-RT-Kaffee)"""
+    """Dialog for configuring the local DICOM node (DICOM-RT-Station)"""
     
     def __init__(self, settings_manager, parent=None):
         super().__init__(parent)
         self.settings_manager = settings_manager
         
-        self.setWindowTitle("Lokalen DICOM-Knoten konfigurieren")
+        self.setWindowTitle("Configure Local DICOM Node")
         self.setMinimumWidth(400)
         
         # Layout erstellen
         layout = QFormLayout()
         
-        # Aktuelle System-IP anzeigen (nicht editierbar)
+        # Display current system IP (not editable)
         ip_label = QLabel(f"<b>System IP:</b> {settings_manager.system_ip}")
-        # Port editierbar machen
+        # Make port editable
         self.port_edit = QLineEdit(settings_manager.config.get('LocalNode', 'ReceivePort', fallback='1334'))
         self.port_edit.setValidator(QIntValidator(1, 65535, self))
-        # AET eingeben
+        # Enter AET
         self.aet_edit = QLineEdit(settings_manager.config.get('LocalNode', 'AET', fallback='DICOM-RT-KAFFEE'))
-        # Felder zum Layout hinzufügen
+        # Add fields to layout
         layout.addRow(ip_label)
         layout.addRow("Port:", self.port_edit)
         layout.addRow("AE Title:", self.aet_edit)
         
-        # Hinweistext
-        hint_label = QLabel("<i>Hinweis: Diese Einstellungen werden für die Konfiguration des lokalen DICOM-Empfängers verwendet. "
-                           "Verwenden Sie diese Werte, um den DICOM-RT-Kaffee in Ihrem TPS zu konfigurieren.</i>")
+        # Hint text
+        hint_label = QLabel("<i>Note: These settings are used for configuring the local DICOM receiver. "
+                           "Use these values to configure DICOM-RT-Station in your TPS.</i>")
         hint_label.setWordWrap(True)
         layout.addRow(hint_label)
         
         # Buttons
         button_layout = QHBoxLayout()
-        save_button = QPushButton("Speichern")
+        save_button = QPushButton("Save")
         save_button.clicked.connect(self.save_settings)
-        cancel_button = QPushButton("Abbrechen")
+        cancel_button = QPushButton("Cancel")
         cancel_button.clicked.connect(self.reject)
         
         button_layout.addWidget(save_button)
         button_layout.addWidget(cancel_button)
         
-        # Vertikales Layout für alle Elemente
+        # Vertical layout for all elements
         main_layout = QVBoxLayout()
         main_layout.addLayout(layout)
         main_layout.addLayout(button_layout)
@@ -533,41 +556,41 @@ class LocalNodeSettingsDialog(QDialog):
         self.setLayout(main_layout)
     
     def save_settings(self):
-        """Speichert die lokalen Knoteneinstellungen"""
+        """Saves the local node settings"""
         try:
             if 'LocalNode' not in self.settings_manager.config:
                 self.settings_manager.config['LocalNode'] = {}
             
             self.settings_manager.config['LocalNode']['AET'] = self.aet_edit.text()
             self.settings_manager.config['LocalNode']['ReceivePort'] = self.port_edit.text()
-            # Konfiguration speichern
+            # Save configuration
             with open(self.settings_manager.config_file, 'w') as f:
                 self.settings_manager.config.write(f)
             
-            logger.info("Lokale DICOM-Knoten-Einstellungen gespeichert")
-            QMessageBox.information(self, "Einstellungen gespeichert", "Die Einstellungen wurden erfolgreich gespeichert.")
+            logger.info("Local DICOM node settings saved")
+            QMessageBox.information(self, "Settings Saved", "The settings were saved successfully.")
             self.accept()
         except Exception as e:
-            logger.error(f"Fehler beim Speichern der Einstellungen: {str(e)}")
-            QMessageBox.critical(self, "Fehler", f"Die Einstellungen konnten nicht gespeichert werden: {str(e)}")
+            logger.error(f"Error saving settings: {str(e)}")
+            QMessageBox.critical(self, "Error", f"The settings could not be saved: {str(e)}")
 
 class NodeSettingsDialog(QDialog):
-    """Dialog zur Konfiguration der DICOM-Knoten"""
+    """Dialog for configuring DICOM nodes"""
     
     def __init__(self, settings_manager, parent=None):
         super().__init__(parent)
         self.settings_manager = settings_manager
         self.nodes = settings_manager.get_dicom_nodes()
         
-        self.setWindowTitle("DICOM-Knoten konfigurieren")
+        self.setWindowTitle("Configure DICOM Nodes")
         self.setMinimumWidth(500)
         
-        # Layout erstellen
+        # Create layout
         layout = QVBoxLayout()
         
         self.tabs = QTabWidget()
         
-        # Tab für jeden Knoten erstellen
+        # Create tab for each node
         for i, node in enumerate(self.nodes):
             node_tab = QWidget()
             tab_layout = QFormLayout()
@@ -576,19 +599,19 @@ class NodeSettingsDialog(QDialog):
             aet_edit = QLineEdit(node['aet'])
             ip_edit = QLineEdit(node['ip'])
             port_edit = QLineEdit(node['port'])
-            enabled_checkbox = QCheckBox("Aktiviert")
+            enabled_checkbox = QCheckBox("Enabled")
             enabled_checkbox.setChecked(node['enabled'])
             
             tab_layout.addRow("Name:", name_edit)
             tab_layout.addRow("AE Title:", aet_edit)
-            tab_layout.addRow("IP-Adresse:", ip_edit)
+            tab_layout.addRow("IP Address:", ip_edit)
             tab_layout.addRow("Port:", port_edit)
             tab_layout.addRow("", enabled_checkbox)
             
             node_tab.setLayout(tab_layout)
-            self.tabs.addTab(node_tab, f"Knoten {i+1}")
+            self.tabs.addTab(node_tab, f"Node {i+1}")
             
-            # Referenzen speichern
+            # Save references
             setattr(self, f"name_edit_{i}", name_edit)
             setattr(self, f"aet_edit_{i}", aet_edit)
             setattr(self, f"ip_edit_{i}", ip_edit)
@@ -599,9 +622,9 @@ class NodeSettingsDialog(QDialog):
         
         # Buttons
         button_layout = QHBoxLayout()
-        save_button = QPushButton("Speichern")
+        save_button = QPushButton("Save")
         save_button.clicked.connect(self.save_settings)
-        cancel_button = QPushButton("Abbrechen")
+        cancel_button = QPushButton("Cancel")
         cancel_button.clicked.connect(self.reject)
         
         button_layout.addWidget(save_button)
@@ -611,7 +634,7 @@ class NodeSettingsDialog(QDialog):
         self.setLayout(layout)
     
     def save_settings(self):
-        """Speichert die Knoteneinstellungen"""
+        """Saves the node settings"""
         for i in range(len(self.nodes)):
             node_data = {
                 'name': getattr(self, f"name_edit_{i}").text(),
@@ -626,84 +649,84 @@ class NodeSettingsDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
-    """Hauptfenster der Anwendung"""
+    """Main window of the application"""
     
     def __init__(self):
         super().__init__()
         
-        # Einstellungen laden
+        # Load settings
         self.settings_manager = SettingsManager()
         
-        # Rules Manager initialisieren
+        # Initialize Rules Manager
         self.rules_manager = RulesManager()
         
-        # DICOM-Prozessor initialisieren
+        # Initialize DICOM processor
         self.dicom_processor = DicomProcessor(self.settings_manager)
-        # Der Empfangsordner ist jetzt immer:
+        # The receive folder is now always:
         received_folder = self.settings_manager.get_received_plans_folder()
         
-        # UI einrichten
+        # Set up UI
         self.setup_ui()
         
-        # Icon setzen
+        # Set icon
         self.set_application_icon()
         
-        # Timer für regelmäßiges Aktualisieren der Planliste
+        # Timer for regular plan list updates
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.periodic_refresh)
-        self.refresh_timer.start(5000)  # alle 5 Sekunden
+        self.refresh_timer.start(5000)  # every 5 seconds
         
-        # DICOM-Empfänger-Thread
+        # DICOM receiver thread
         self.receiver_thread = None
         
-        # Aktive Sende-Threads
+        # Active send threads
         self.send_threads = {}
 
-        # Automatischer Start des DICOM-Empfängers, wenn in den Settings aktiviert
+        # Automatic start of DICOM receiver if enabled in settings
         auto_start = self.settings_manager.get_auto_start_receiver()
         if auto_start:
             try:
                 self.toggle_receiver()
-                logger.info("DICOM-Empfänger wurde beim Start automatisch aktiviert (auto_start_receiver=True)")
+                logger.info("DICOM receiver was automatically activated at startup (auto_start_receiver=True)")
             except Exception as e:
-                logger.error(f"Automatischer Start des DICOM-Empfängers fehlgeschlagen: {e}")
+                logger.error(f"Automatic start of DICOM receiver failed: {e}")
         
     def setup_ui(self):
-        """Richtet die Benutzeroberfläche ein"""
-        self.setWindowTitle("DICOM-RT-Kaffee")
+        """Sets up the user interface"""
+        self.setWindowTitle("DICOM-RT-Station")
         self.setMinimumSize(800, 600)
         
-        # Zentrales Widget
+        # Central widget
         central_widget = QWidget()
         main_layout = QVBoxLayout()
         
-        # Splitter für die Hauptbereiche
+        # Splitter for main areas
         splitter = QSplitter(Qt.Horizontal)
         
-        # Linke Seite: Plan-Liste
+        # Left side: Plan list
         left_widget = QWidget()
         left_layout = QVBoxLayout()
         
         # Header
-        plan_header = QLabel("Verfügbare RT-Pläne")
+        plan_header = QLabel("Available RT Plans")
         plan_header.setFont(QFont('Arial', 12, QFont.Bold))
         left_layout.addWidget(plan_header)
         
-        # Plan-Baum
+        # Plan tree
         self.plan_tree = QTreeWidget()
-        self.plan_tree.setHeaderLabels(["Patienten & Pläne"])
+        self.plan_tree.setHeaderLabels(["Patients & Plans"])
         self.plan_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.plan_tree.itemSelectionChanged.connect(self.update_buttons)
         left_layout.addWidget(self.plan_tree)
         
-        # Buttons für Pläne
+        # Buttons for plans
         plan_buttons_layout = QHBoxLayout()
-        self.refresh_button = QPushButton("Aktualisieren")
+        self.refresh_button = QPushButton("Refresh")
         self.refresh_button.clicked.connect(self.refresh_plan_list)
-        self.delete_button = QPushButton("Ausgewählte löschen")
+        self.delete_button = QPushButton("Delete Selected")
         self.delete_button.clicked.connect(self.delete_selected_plans)
         self.delete_button.setEnabled(False)
-        self.delete_all_button = QPushButton("Alle löschen")
+        self.delete_all_button = QPushButton("Delete All")
         self.delete_all_button.clicked.connect(self.delete_all_plans)
         
         plan_buttons_layout.addWidget(self.refresh_button)
@@ -713,51 +736,51 @@ class MainWindow(QMainWindow):
         
         left_widget.setLayout(left_layout)
         
-        # Rechte Seite: DICOM-Knoten und Aktionen
+        # Right side: DICOM nodes and actions
         right_widget = QWidget()
         right_layout = QVBoxLayout()
         
-        # DICOM-Knoten-Gruppe
-        nodes_group = QGroupBox("DICOM-Knoten")
+        # DICOM nodes group
+        nodes_group = QGroupBox("DICOM Nodes")
         nodes_layout = QVBoxLayout()
         
-        # Knoten-Checkboxes
+        # Node checkboxes
         self.node_checkboxes = []
         for i, node in enumerate(self.settings_manager.get_dicom_nodes(), 1):
             checkbox = QCheckBox(f"{node['name']} ({node['ip']}:{node['port']})")
             checkbox.setChecked(node['enabled'])
             nodes_layout.addWidget(checkbox)
             self.node_checkboxes.append(checkbox)
-            # Checkbox auch als Attribut setzen für einfacheren Zugriff
+            # Also set checkbox as attribute for easier access
             setattr(self, f"node{i}_checkbox", checkbox)
         
-        # Knoten-Einstellungen-Button
-        node_settings_button = QPushButton("Externe Knoten konfigurieren...")
+        # Node settings button
+        node_settings_button = QPushButton("Configure External Nodes...")
         node_settings_button.clicked.connect(self.show_node_settings)
         nodes_layout.addWidget(node_settings_button)
         
-        # Lokaler Knoten-Einstellungen-Button
-        local_node_settings_button = QPushButton("Lokalen Knoten konfigurieren...")
+        # Local node settings button
+        local_node_settings_button = QPushButton("Configure Local Node...")
         local_node_settings_button.clicked.connect(self.show_local_node_settings)
         nodes_layout.addWidget(local_node_settings_button)
         
         nodes_group.setLayout(nodes_layout)
         right_layout.addWidget(nodes_group)
         
-        # Aktionen-Gruppe
-        actions_group = QGroupBox("Aktionen")
+        # Actions group
+        actions_group = QGroupBox("Actions")
         actions_layout = QVBoxLayout()
         
-        self.send_button = QPushButton("Ausgewählte Pläne senden")
+        self.send_button = QPushButton("Send Selected Plans")
         self.send_button.clicked.connect(self.send_selected_plans)
         self.send_button.setEnabled(False)
         
-        self.receiver_button = QPushButton("DICOM-Empfänger starten")
+        self.receiver_button = QPushButton("Start DICOM Receiver")
         self.receiver_button.clicked.connect(self.toggle_receiver)
         
-        self.import_button = QPushButton("Import-Ordner verarbeiten")
+        self.import_button = QPushButton("Process Import Folder")
         self.import_button.clicked.connect(self.process_import_folder)
-        self.import_button.setToolTip("DICOM-Dateien aus dem Import-Ordner verarbeiten und sortieren")
+        self.import_button.setToolTip("Process and sort DICOM files from the import folder")
         
         
         actions_layout.addWidget(self.send_button)
@@ -767,22 +790,22 @@ class MainWindow(QMainWindow):
         actions_group.setLayout(actions_layout)
         right_layout.addWidget(actions_group)
         
-        # Status-Gruppe
+        # Status group
         status_group = QGroupBox("Status")
         status_layout = QVBoxLayout()
         
-        # Status-Anzeige mit Lampe
+        # Status display with lamp
         status_header_layout = QHBoxLayout()
         
-        # Status-Lampe
+        # Status lamp
         self.status_lamp = StatusLamp()
-        self.status_lamp.set_status('off')  # Initial ausgeschaltet
+        self.status_lamp.set_status('off')  # Initially off
         
-        # Status-Text
-        self.status_label = QLabel("Bereit.")
+        # Status text
+        self.status_label = QLabel("Ready.")
         
         status_header_layout.addWidget(self.status_lamp)
-        status_header_layout.addWidget(self.status_label, 1)  # 1 = Stretchfaktor
+        status_header_layout.addWidget(self.status_label, 1)  # 1 = stretch factor
         status_layout.addLayout(status_header_layout)
         
         self.progress_bar = QProgressBar()
@@ -794,7 +817,7 @@ class MainWindow(QMainWindow):
         
         right_widget.setLayout(right_layout)
         
-        # Splitter hinzufügen
+        # Add splitter
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
         splitter.setSizes([400, 400])
@@ -804,160 +827,171 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
         
-        # Menüleiste
+        # Menu bar
         self.setup_menu()
         
-        # Erste Aktualisierung der Planliste
+        # Initial plan list update
         self.refresh_plan_list()
     
     def setup_menu(self):
-        """Erstellt die Menüleiste"""
+        """Creates the menu bar"""
         menu_bar = self.menuBar()
         
-        # Datei-Menü
-        file_menu = menu_bar.addMenu("&Datei")
+        # File menu
+        file_menu = menu_bar.addMenu("&File")
         
-        settings_action = QAction("&Einstellungen", self)
+        settings_action = QAction("&Settings", self)
         settings_action.triggered.connect(self.open_settings_dialog)
         file_menu.addAction(settings_action)
         
-        rules_action = QAction("&Weiterleitungsregeln", self)
+        rules_action = QAction("&Forwarding Rules", self)
         rules_action.triggered.connect(self.show_rules_dialog)
         file_menu.addAction(rules_action)
         
-        exit_action = QAction("&Beenden", self)
+        exit_action = QAction("E&xit", self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
-        # Hilfe-Menü
-        help_menu = menu_bar.addMenu("&Hilfe")
+        # Help menu
+        help_menu = menu_bar.addMenu("&Help")
         
-        about_action = QAction("Ü&ber", self)
+        about_action = QAction("&About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
     
     def set_application_icon(self):
-        """Setzt das Anwendungsicon für Fenster und Taskleiste"""
+        """Sets the application icon for window and taskbar"""
         try:
-            # Pfad zum Icon-File
+            # Path to icon file
             icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'DICOM-RT-Station.ico')
             
             if os.path.exists(icon_path):
-                # Icon für das Fenster setzen
+                # Set icon for window
                 icon = QIcon(icon_path)
                 self.setWindowIcon(icon)
                 
-                # Icon auch für die gesamte Anwendung setzen (Taskleiste)
+                # Also set icon for entire application (taskbar)
                 QApplication.instance().setWindowIcon(icon)
                 
-                logger.info(f"Anwendungsicon erfolgreich geladen: {icon_path}")
+                logger.info(f"Application icon successfully loaded: {icon_path}")
             else:
-                logger.warning(f"Icon-Datei nicht gefunden: {icon_path}")
+                logger.warning(f"Icon file not found: {icon_path}")
                 
         except Exception as e:
-            logger.error(f"Fehler beim Laden des Anwendungsicons: {str(e)}")
+            logger.error(f"Error loading application icon: {str(e)}")
     
     def refresh_plan_list(self):
-        """Aktualisiert die hierarchische Liste der verfügbaren Pläne und erhält die Auswahl"""
+        """Updates the hierarchical list of available plans and preserves selection"""
         watch_folder = self.settings_manager.get_received_plans_folder()
-        patient_dict = {}  # Dictionary für Patientenordner -> Plan-Ordner
+        patient_dict = {}  # Dictionary for patient folders -> plan folders
         plan_count = 0
         
-        # Aktuelle Auswahl speichern
+        # Save current selection
         selected_paths = []
         for item in self.plan_tree.selectedItems():
-            # Nur Plan-Elemente (nicht Patienten) berücksichtigen
+            # Only consider plan elements (not patients)
             if item.data(0, Qt.UserRole) is not None:
                 selected_paths.append(item.data(0, Qt.UserRole))
         
-        # Den Baum leeren
+        # Clear the tree
         self.plan_tree.clear()
         
-        # Patientenordner durchsuchen
-        if os.path.exists(watch_folder):
-            # Nur Verzeichnisse berücksichtigen und den failed-Ordner ignorieren
-            patient_folders = [
-                d for d in os.listdir(watch_folder)
-                if os.path.isdir(os.path.join(watch_folder, d)) and d != "failed"
-            ]
-            
-            # Für jeden Patientenordner
-            for patient_folder in patient_folders:
-                patient_path = os.path.join(watch_folder, patient_folder)
-                plan_folders = []
+        # TEST DATA: Generate dummy plans for screenshots
+        if SHOW_TEST_DATA:
+            patient_dict = {
+                'Mueller^Hans^': ['IM105-ADP0104_12345', 'IM105-SCH0104_12346', 'Prostate-VMAT_12347'],
+                'Schmidt^Anna^': ['Breast-Left_23456'],
+                'Johnson^Robert^': ['Lung-SBRT_34567', 'Lung-Boost_34568'],
+                'Weber^Maria^': ['Brain-SRS_45678'],
+                'Fischer^Thomas^': ['H&N-IMRT_56789']
+            }
+            plan_count = sum(len(plans) for plans in patient_dict.values())
+        else:
+            # Search patient folders
+            if os.path.exists(watch_folder):
+                # Only consider directories and ignore the failed folder
+                patient_folders = [
+                    d for d in os.listdir(watch_folder)
+                    if os.path.isdir(os.path.join(watch_folder, d)) and d != "failed"
+                ]
                 
-                # Für jeden Plan im Patientenordner
-                for plan_folder in os.listdir(patient_path):
-                    plan_path = os.path.join(patient_path, plan_folder)
-                    if os.path.isdir(plan_path):
-                        plan_folders.append(plan_folder)
-                        plan_count += 1
-                
-                # Nur Patienten mit mindestens einem Plan hinzufügen
-                if plan_folders:
-                    patient_dict[patient_folder] = plan_folders
+                # For each patient folder
+                for patient_folder in patient_folders:
+                    patient_path = os.path.join(watch_folder, patient_folder)
+                    plan_folders = []
+                    
+                    # For each plan in the patient folder
+                    for plan_folder in os.listdir(patient_path):
+                        plan_path = os.path.join(patient_path, plan_folder)
+                        if os.path.isdir(plan_path):
+                            plan_folders.append(plan_folder)
+                            plan_count += 1
+                    
+                    # Only add patients with at least one plan
+                    if plan_folders:
+                        patient_dict[patient_folder] = plan_folders
         
-        # Hierarchischen Baum erstellen
-        plan_items_map = {}  # Dictionary für Pfad -> Plan-Item (zur Wiederherstellung der Auswahl)
+        # Create hierarchical tree
+        plan_items_map = {}  # Dictionary for path -> plan item (for restoring selection)
         
         for patient_name, plan_folders in patient_dict.items():
-            # Patienten-Element erstellen
+            # Create patient element
             patient_item = QTreeWidgetItem([patient_name])
-            patient_item.setData(0, Qt.UserRole, None)  # Kein Pfad für Patientenelemente
-            patient_item.setFlags(patient_item.flags() & ~Qt.ItemIsSelectable)  # Patienten nicht selektierbar
+            patient_item.setData(0, Qt.UserRole, None)  # No path for patient elements
+            patient_item.setFlags(patient_item.flags() & ~Qt.ItemIsSelectable)  # Patients not selectable
             self.plan_tree.addTopLevelItem(patient_item)
             
-            # Plan-Elemente als Kind-Elemente hinzufügen
+            # Add plan elements as child elements
             for plan_name in plan_folders:
-                # Study-Nummer aus der Anzeige entfernen, falls vorhanden
+                # Remove study number from display if present
                 display_name = plan_name
                 if "_" in display_name:
-                    # Versuchen, die Study-Nummer zu entfernen (typischerweise nach einem Unterstrich)
+                    # Try to remove the study number (typically after an underscore)
                     parts = display_name.split("_")
                     if len(parts) > 1 and any(part.isdigit() for part in parts[1:]):
-                        # Wenn nach dem Unterstrich eine Zahl steht, diese entfernen
+                        # If there's a number after the underscore, remove it
                         display_name = parts[0]
                 
-                plan_item = QTreeWidgetItem(["  " + display_name])  # Eingerückt für visuelle Hierarchie
+                plan_item = QTreeWidgetItem(["  " + display_name])  # Indented for visual hierarchy
                 plan_path = os.path.join(watch_folder, patient_name, plan_name)
-                plan_item.setData(0, Qt.UserRole, plan_path)  # Vollständigen Pfad speichern
+                plan_item.setData(0, Qt.UserRole, plan_path)  # Save complete path
                 patient_item.addChild(plan_item)
                 plan_items_map[plan_path] = plan_item
             
-            # Patienten- und Plan-Elemente standardmäßig expandieren
+            # Expand patient and plan elements by default
             patient_item.setExpanded(True)
             
-            # Alle Kind-Elemente (Pläne) ebenfalls expandieren
+            # Also expand all child elements (plans)
             for i in range(patient_item.childCount()):
                 patient_item.child(i).setExpanded(True)
         
-        # Auswahl wiederherstellen, falls möglich
+        # Restore selection if possible
         if selected_paths:
-            # Signalverbindung temporär deaktivieren, um unnötige Ereignisse zu vermeiden
+            # Temporarily disable signal connection to avoid unnecessary events
             self.plan_tree.itemSelectionChanged.disconnect(self.update_buttons)
             
             for path in selected_paths:
                 if path in plan_items_map:
                     plan_items_map[path].setSelected(True)
             
-            # Signalverbindung wiederherstellen
+            # Restore signal connection
             self.plan_tree.itemSelectionChanged.connect(self.update_buttons)
             
-            # Button-Status manuell aktualisieren, da das Signal unterdrückt wurde
+            # Manually update button status since signal was suppressed
             self.update_buttons()
             
-        # Status aktualisieren
-        self.status_label.setText(f"{plan_count} Pläne in {len(patient_dict)} Patienten verfügbar.")
+        # Update status
+        self.status_label.setText(f"{plan_count} plans in {len(patient_dict)} patients available.")
         
-        # "Alle löschen"-Button nur aktivieren, wenn Pläne vorhanden sind
+        # Only enable "Delete All" button if plans are available
         self.delete_all_button.setEnabled(plan_count > 0)
         
     def delete_all_plans(self):
-        """Löscht alle verfügbaren Pläne nach Bestätigung"""
+        """Deletes all available plans after confirmation"""
         watch_folder = self.settings_manager.get_received_plans_folder()
         plans = []
         
-        # Alle Unterordner im Watch-Folder sind Pläne (außer 'failed')
+        # All subfolders in watch folder are plans (except 'failed')
         if os.path.exists(watch_folder):
             plans = [
                 d for d in os.listdir(watch_folder) 
@@ -966,17 +1000,17 @@ class MainWindow(QMainWindow):
             ]
         
         if not plans:
-            self.status_label.setText("Keine Pläne zum Löschen vorhanden.")
+            self.status_label.setText("No plans available to delete.")
             return
             
-        # Bestätigung einholen mit Warnung
+        # Get confirmation with warning
         count = len(plans)
-        confirm_message = (f"ACHTUNG: Alle {count} Pläne werden unwiderruflich gelöscht!\n\n"
-                          f"Möchten Sie wirklich ALLE {count} Pläne löschen?")
+        confirm_message = (f"WARNING: All {count} plans will be permanently deleted!\n\n"
+                          f"Do you really want to delete ALL {count} plans?")
         
         confirm = QMessageBox.question(
             self,
-            "Alle Pläne löschen",
+            "Delete All Plans",
             confirm_message,
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
@@ -985,11 +1019,11 @@ class MainWindow(QMainWindow):
         if confirm != QMessageBox.Yes:
             return
             
-        # Zweite Bestätigung einholen
+        # Get second confirmation
         second_confirm = QMessageBox.warning(
             self,
-            "Letzte Warnung",
-            "Dies ist Ihre letzte Warnung!\n\nAlle Pläne werden gelöscht und können nicht wiederhergestellt werden!",
+            "Final Warning",
+            "This is your final warning!\n\nAll plans will be deleted and cannot be recovered!",
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel
         )
@@ -997,58 +1031,58 @@ class MainWindow(QMainWindow):
         if second_confirm != QMessageBox.Yes:
             return
         
-        # Fortschrittsanzeige vorbereiten    
+        # Prepare progress display    
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(count)
         self.progress_bar.setValue(0)
         
-        # Pläne löschen
+        # Delete plans
         success_count = 0
         failed_plans = []
         
         for i, plan_name in enumerate(plans):
             plan_path = os.path.join(watch_folder, plan_name)
             
-            # Status aktualisieren
-            self.status_label.setText(f"Lösche Plan {i+1}/{count}: {plan_name}...")
+            # Update status
+            self.status_label.setText(f"Deleting plan {i+1}/{count}: {plan_name}...")
             self.progress_bar.setValue(i + 1)
-            QApplication.processEvents()  # UI-Updates zulassen
+            QApplication.processEvents()  # Allow UI updates
             
             try:
                 import shutil
                 if os.path.exists(plan_path):
                     shutil.rmtree(plan_path)
-                    logger.info(f"Plan gelöscht: {plan_name}")
+                    logger.info(f"Plan deleted: {plan_name}")
                     success_count += 1
                 else:
-                    logger.warning(f"Plan nicht gefunden: {plan_name}")
-                    failed_plans.append((plan_name, "Plan nicht gefunden"))
+                    logger.warning(f"Plan not found: {plan_name}")
+                    failed_plans.append((plan_name, "Plan not found"))
             except Exception as e:
-                logger.error(f"Fehler beim Löschen von {plan_name}: {str(e)}")
+                logger.error(f"Error deleting {plan_name}: {str(e)}")
                 failed_plans.append((plan_name, str(e)))
         
-        # Zusammenfassung anzeigen
+        # Show summary
         if failed_plans:
             error_details = "\n- ".join([f"{name}: {error}" for name, error in failed_plans])
             QMessageBox.warning(
                 self,
-                "Fehler beim Löschen",
-                f"{len(failed_plans)} von {count} Plänen konnten nicht gelöscht werden:\n\n- {error_details}"
+                "Error Deleting",
+                f"{len(failed_plans)} of {count} plans could not be deleted:\n\n- {error_details}"
             )
         
         if success_count > 0:
-            self.status_label.setText(f"Alle Pläne gelöscht: {success_count} von {count} erfolgreich.")
+            self.status_label.setText(f"All plans deleted: {success_count} of {count} successful.")
         
-        # Liste aktualisieren und Fortschrittsanzeige ausblenden
+        # Update list and hide progress display
         self.refresh_plan_list()
         self.progress_bar.setVisible(False)
         
     def update_buttons(self):
-        """Aktualisiert den Zustand der Buttons basierend auf der Auswahl"""
-        # Nur Planelemente zählen (keine Patientenordner)
+        """Updates button state based on selection"""
+        # Only count plan elements (not patient folders)
         selected_plan_items = []
         for item in self.plan_tree.selectedItems():
-            # Wenn es sich um ein Plan-Element handelt (hat einen Pfad gespeichert)
+            # If it's a plan element (has a saved path)
             if item.data(0, Qt.UserRole) is not None:
                 selected_plan_items.append(item)
         
@@ -1322,31 +1356,31 @@ class MainWindow(QMainWindow):
             self.refresh_plan_list()
     
     def toggle_receiver(self):
-        """Startet oder stoppt den DICOM-Empfänger"""
+        """Starts or stops the DICOM receiver"""
         if self.receiver_thread is None or not self.receiver_thread.isRunning():
-            # Empfänger starten
+            # Start receiver
             port = int(self.settings_manager.config['General'].get('ReceivePort', '1334'))
             self.receiver_thread = DicomReceiverThread(self.dicom_processor, port)
             self.receiver_thread.new_plan_signal.connect(self.handle_new_plan)
             self.receiver_thread.status_signal.connect(self.update_receiver_status)
             self.receiver_thread.start()
             
-            self.receiver_button.setText("DICOM-Empfänger stoppen")
-            logger.info("DICOM-Empfänger gestartet")
+            self.receiver_button.setText("Stop DICOM Receiver")
+            logger.info("DICOM receiver started")
             
-            # Statuslampe auf grün (bereit) setzen
+            # Set status lamp to green (ready)
             self.status_lamp.set_status('ready')
         else:
-            # Empfänger stoppen
+            # Stop receiver
             self.receiver_thread.stop()
-            self.receiver_button.setText("DICOM-Empfänger starten")
-            logger.info("DICOM-Empfänger gestoppt")
+            self.receiver_button.setText("Start DICOM Receiver")
+            logger.info("DICOM receiver stopped")
             
-            # Statuslampe auf rot (aus) setzen
+            # Set status lamp to red (off)
             self.status_lamp.set_status('off')
     
     def update_receiver_status(self, status):
-        """Aktualisiert den Empfängerstatus"""
+        """Updates the receiver status"""
         self.status_label.setText(status)
         
         # Status-Lampe aktualisieren
@@ -1356,33 +1390,33 @@ class MainWindow(QMainWindow):
             self.status_lamp.set_status('ready')
     
     def handle_new_plan(self, plan_path):
-        """Behandelt einen neu empfangenen Plan
+        """Handles a newly received plan
         
         Args:
-            plan_path (str): Pfad zum neuen Plan
+            plan_path (str): Path to the new plan
         """
         self.refresh_plan_list()
-        self.update_receiver_status(f"Neuer Plan empfangen: {os.path.basename(plan_path)}")
+        self.update_receiver_status(f"New plan received: {os.path.basename(plan_path)}")
         
     def periodic_refresh(self):
-        """Führt eine regelmäßige Aktualisierung durch und stellt sicher, dass alle Pläne aufgeklappt bleiben"""
-        # Planliste aktualisieren
+        """Performs regular updates and ensures all plans remain expanded"""
+        # Update plan list
         self.refresh_plan_list()
         
-        # Sicherstellen, dass alle Pläne aufgeklappt sind
+        # Ensure all plans are expanded
         root = self.plan_tree.invisibleRootItem()
         for i in range(root.childCount()):
             patient_item = root.child(i)
             patient_item.setExpanded(True)
             
-            # Alle Pläne des Patienten aufklappen
+            # Expand all plans of the patient
             for j in range(patient_item.childCount()):
                 patient_item.child(j).setExpanded(True)
 
     def process_import_folder(self):
-        """Verarbeitet alle DICOM-Dateien im Import-Ordner und sortiert sie in die richtige Struktur"""
-        # Status aktualisieren
-        self.status_label.setText("Verarbeite Import-Ordner...")
+        """Processes all DICOM files in the import folder and sorts them into the correct structure"""
+        # Update status
+        self.status_label.setText("Processing import folder...")
         self.import_button.setEnabled(False)
         
         # Thread starten, um die UI nicht zu blockieren
@@ -1577,18 +1611,19 @@ class MainWindow(QMainWindow):
         dialog.exec_()
     
     def show_about(self):
-        """Zeigt Informationen über die Anwendung"""
+        """Shows information about the application"""
         QMessageBox.about(
             self,
-            "Über DICOM-RT-Kaffee",
-            "<h3>DICOM-RT-Kaffee</h3>"
-            "<p>Ein DICOM-Plan-Manager mit GUI</p>"
-            "<p>Version 1.0</p>"
+            "About DICOM-RT-Station",
+            "<h3>DICOM-RT-Station</h3>"
+            "<p>A DICOM Plan Manager with GUI</p>"
+            "<p>Version 1.1</p>"
+            "<p><a href='https://github.com/Kiragroh/DICOM-RT-Station'>GitHub Repository</a></p>"
         )
     
     def closeEvent(self, event):
-        """Behandelt das Schließen des Fensters"""
-        # Alle laufenden Threads stoppen
+        """Handles window closing"""
+        # Stop all running threads
         if self.receiver_thread and self.receiver_thread.isRunning():
             self.receiver_thread.stop()
         
@@ -1600,23 +1635,26 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    """Haupteinstiegspunkt der Anwendung"""
+    """Main entry point of the application"""
     app = QApplication(sys.argv)
     
-    # Windows-spezifische Taskbar-Icon-Konfiguration
+    # Apply dark theme
+    apply_dark_theme(app)
+    
+    # Windows-specific taskbar icon configuration
     try:
         import ctypes
-        # App-ID für Windows Taskbar setzen
+        # Set App-ID for Windows taskbar
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('DICOM.RT.Station.1.0')
     except:
-        pass  # Ignoriere Fehler auf anderen Betriebssystemen
+        pass  # Ignore errors on other operating systems
     
-    # Icon für die gesamte Anwendung setzen (vor dem Erstellen des Fensters)
+    # Set icon for entire application (before creating window)
     icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'DICOM-RT-Station.ico')
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
     
-    # Verzeichnisse erstellen
+    # Create directories
     app_dir = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(os.path.join(app_dir, 'logs'), exist_ok=True)
     os.makedirs(os.path.join(app_dir, 'received_plans'), exist_ok=True)
